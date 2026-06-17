@@ -51,5 +51,5 @@ This project is a comprehensive suite of tools designed to **manage LittleFS fil
 *   Communication errors may occur if the device is currently occupied by another program (e.g., Arduino IDE Serial Monitor).
 
 ---
-Copyright (c) 2024 ESP32 LittleFS Toolset Project
+Copyright (c) 2026 ESP32 LittleFS Toolset Project
 License: MIT
