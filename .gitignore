@@ -1,1 +1,7 @@
-.pio
+*.pio/
+*.exe
+__pycache__/
+venv/
+.vscode/
+.env
+build/

@@ -1,7 +1,8 @@
-# 필요한 라이브러리(esptool, sys, os)를 임포트합니다.
+# 필요한 라이브러리(esptool, sys, os, argparse)를 임포트합니다.
 import esptool
 import sys
 import os
+import argparse
 
 # 1. ESP32 플래시 메모리에서 바이너리 데이터를 추출하는 함수를 정의합니다.
 def dump_bin_file(output_file_name: str, offset: str, size: str, port: str = None) -> bool:
@@ -39,14 +40,20 @@ def dump_bin_file(output_file_name: str, offset: str, size: str, port: str = Non
 
 # 2. 스크립트의 전체 실행 흐름을 담당하는 메인 함수를 정의합니다.
 def main():
-    # 2.1 저장될 바이너리 파일 경로와 추출할 영역의 오프셋 및 크기를 설정합니다.
-    output_file_name = os.path.join(os.path.dirname(__file__), "littlefs.bin")
-    offset = "0x110000"
-    size = "0x14F000"
+    # 2.1 명령줄 인자를 파싱하기 위한 설정을 수행합니다.
+    parser = argparse.ArgumentParser(description="ESP32 Flash Dump Tool")
+    parser.add_argument("--output", default="littlefs.bin", help="저장할 바이너리 파일 경로 (기본값: littlefs.bin)")
+    parser.add_argument("--offset", default="0x110000", help="추출할 영역의 시작 오프셋 (기본값: 0x110000)")
+    parser.add_argument("--size", default="0x14F000", help="추출할 데이터의 크기 (기본값: 0x14F000)")
+    parser.add_argument("--port", help="ESP32가 연결된 시리얼 포트")
+
+    args = parser.parse_args()
+
+    output_file_name = os.path.join(os.path.dirname(__file__), args.output)
 
     # 2.2 덤프 함수를 호출하고 결과에 따라 성공 메시지를 출력하거나 프로그램을 종료합니다.
-    print(f"Attempting to dump flash from offset {offset} with size {size} to {output_file_name}")
-    if not dump_bin_file(output_file_name, offset, size):
+    print(f"Attempting to dump flash from offset {args.offset} with size {args.size} to {output_file_name}")
+    if not dump_bin_file(output_file_name, args.offset, args.size, port=args.port):
         print(f"DumpBinFile Failed for {output_file_name}")
         sys.exit(1)
     else:

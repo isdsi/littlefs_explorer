@@ -1,82 +1,55 @@
+# ESP32 LittleFS Integrated Management Tool (LittleFS Toolset)
 
-# ESP32 LittleFS 관리 도구 (ESP32 LittleFS Toolset)
+This project is a comprehensive suite of tools designed to **manage LittleFS file systems on ESP32 devices via an intuitive GUI**. It allows you to control the entire process—from partition analysis and file editing to device uploading—through a visual interface, eliminating the need for complex terminal commands or arguments.
 
-이 프로젝트는 ESP32 장치의 LittleFS 파티션을 효율적으로 관리하기 위한 통합 도구 모음입니다. 
-실제 기기에서 파일 시스템을 추출(Dump)하거나 업로드(Flash)할 수 있으며, 로컬 환경에서 바이너리 이미지를 해제(Extract)하거나 다시 조립(Assemble)하는 기능을 제공합니다.
-또한, ESP32 기기 내부에서 LittleFS가 정상 작동하는지 확인하기 위한 Arduino(C++) 테스트 코드가 포함되어 있습니다.
+<p align="center">
+  <img src="screenshot/littlefs_explorer.png" alt="LittleFS Explorer Screenshot" width="800">
+</p>
+
+## Core Tool: LittleFS Explorer (`littlefs_explorer.py`)
+
+`littlefs_explorer` is the main interface of the project, integrating various individual functions into a single, user-friendly application.
+
+### Key Features
+*   **Automatic Partition Table Analysis**: Reads the `0x8000` offset of the ESP32 device to analyze and display the partition layout as visual blocks. Users can easily identify and select the LittleFS partition.
+*   **Direct Device Communication (Read/Write)**: Perform immediate data extraction (Dump) from the selected port/partition or write updated data back to the device (Flash).
+*   **Real-time File Management (CRUD)**:
+    *   Displays the internal file list of the LittleFS binary in a tree structure.
+    *   Provides text editing capabilities by double-clicking files.
+    *   Allows creating and deleting files/folders via a right-click context menu.
+*   **Drag & Drop Support**: Easily add files to the file system by dragging them from your local PC's file explorer into the application window.
+*   **Storage Monitoring**: Real-time monitoring of the actual file system usage compared to the partition size, with a visual red warning if the capacity is exceeded.
+
+## Installation and Execution
+
+### Requirements
+*   **Python 3.x**
+*   **Dependencies**: `esptool`, `littlefs-python`, `pyside6` (PySide6 is required for the GUI).
+
+### Quick Start (Windows)
+1.  Run the `venv_install.ps1` script to automatically set up the virtual environment and install required libraries.
+2.  Once installed, run the application using:
+    ```bash
+    .\venv\Scripts\python.exe littlefs_explorer.py
+    ```
+
+## Project Structure
+
+*   **GUI Editor**: `littlefs_explorer.py` (Main executable)
+*   **Backend Scripts**: Individual modules responsible for LittleFS assembly/disassembly and device dump/flash.
+*   **Test Code**: `src/main.cpp` for verifying LittleFS operation on the ESP32 device (Arduino environment).
+*   **Image Resources**: Icons used for GUI buttons (`img/` folder).
+
+## Reference Documents
+
+*   Detailed functional specifications and CLI usage for individual scripts (`mklittlefs.py`, `dump_littlefs.py`, `flash_littlefs.py`, etc.) can be found in the **Scripts.ko.md** file (or the upcoming English version).
 
 ---
 
-# mklittlefs.py 명세
-1. **LittleFS 바이너리 파일을 읽어 내부에 저장된 파일들을 로컬 폴더로 추출하는 함수 정의**
-   - 1.1 블록사이즈를 함수의 매개변수로 받고 블록 카운트는 파일 크기로 계산한다.
-   - 1.2 LittleFS 인스턴스 초기화 및 바이너리 데이터를 메모리 버퍼에 로드하여 파일 시스템 마운트한다.    
-   - 1.3 로컬에 대상 폴더의 내용을 모두 삭제한다.
-   - 1.4 가상 파일 시스템 내부를 순회하며 디렉토리를 생성하고 파일 데이터를 읽어 로컬에 기록
-   - 1.5 파일 시스템 사용 종료 후 안전하게 언마운트 수행
-2. **로컬 폴더에 있는 파일들을 수집하여 하나의 LittleFS 바이너리 파일로 만드는 함수 정의**
-   - 2.1 블록사이즈를 함수의 매개변수로 받고 블록 카운트는 파일 크기로 계산한다.
-   - 2.2 새 파일 시스템을 위한 인스턴스 생성, 포맷 및 로컬 디렉토리 파일 대량 임포트
-   - 2.3 메모리 버퍼에 생성된 최종 파일 시스템 이미지를 실제 물리 바이너리 파일로 저장
+## Cautions
+*   Since this tool writes data directly to the flash memory, ensure the correct serial port and partition offset are selected before proceeding.
+*   Communication errors may occur if the device is currently occupied by another program (e.g., Arduino IDE Serial Monitor).
 
-# mklittlefs.py 사용법
-이 스크립트를 사용하기 전에 littlefs-python 라이브러리가 설치되어 있어야 합니다.
-
-bash
-python mklittlefs.py --action extract --bin_file littlefs.bin --folder extracted_data
-
-python mklittlefs.py --action assemble --bin_file new_littlefs.bin --folder extracted_data
-
-# flash_littlefs.py 명세
-1. 바이너리 파일을 ESP32의 특정 오프셋에 업로드하는 함수를 정의합니다.
-   1.1 esptool 실행에 필요한 통신 속도, 리셋 설정, 쓰기 모드 등의 인자 리스트를 생성합니다.
-   1.2 실행될 esptool 명령 인자 정보를 콘솔에 출력합니다.
-   1.3. esptool.main을 호출하여 플래싱을 수행하고 종료 코드 및 예외를 처리하여 성공 여부를 반환합니다.
-2. 스크립트의 전체 실행 흐름을 담당하는 메인 함수를 정의합니다.
-   2.1 업로드할 LittleFS 바이너리 파일 경로와 대상 오프셋 주소를 설정합니다.
-   2.2 바이너리 파일이 해당 경로에 실제로 존재하는지 검사합니다.
-   2.3 업로드 함수를 호출하고 결과에 따라 성공 메시지를 출력하거나 프로그램을 종료합니다.
-
-# flash_littlefs.py 사용법
-이 스크립트는 생성된 `new_littlefs.bin` 파일을 ESP32의 지정된 오프셋(0x110000)에 업로드합니다.
-
-bash
-python flash_littlefs.py
-
-# dump_littlefs.py 명세
-1. ESP32 플래시 메모리에서 바이너리 데이터를 추출하는 함수를 정의합니다.
-   1.2 실행될 esptool 명령 인자 정보를 콘솔에 출력합니다.
-   1.3 esptool.main을 호출하여 덤프를 수행하고 종료 코드 및 예외를 처리하여 성공 여부를 반환합니다.
-2. 스크립트의 전체 실행 흐름을 담당하는 메인 함수를 정의합니다.
-   2.1 저장될 바이너리 파일 경로와 추출할 영역의 오프셋 및 크기를 설정합니다.
-   2.2 덤프 함수를 호출하고 결과에 따라 성공 메시지를 출력하거나 프로그램을 종료합니다.
-    
-# dump_littlefs.py 사용법
-이 스크립트는 ESP32의 플래시 메모리에서 LittleFS 영역(0x110000, 1.3MB)을 읽어 `littlefs.bin` 파일로 저장합니다.
-
-bash
-python dump_littlefs.py
-
-# main.cpp 명세
-1. LittleFS 마운트 (포맷 여부 false: 마운트 실패 시 자동 포맷)
-2. 이미 존재하는 파일 존재 확인 및 읽고 표시하기
-3. 파일 생성 및 기록 (FILE_WRITE)
-4. 파일 다시 읽기 및 표시 (FILE_READ)
-
-# littlefs_explorer
-1. esp32 의 파티션을 읽어 littlefs.bin 파일을 읽어온다. dump_littlefs.py 를 사용한다.
-2. littlefs.bin 파일을 extracted_data 폴더에 추출한다. mklittlefs.py 를 사용한다.
-   2.1 이미 존재하는 extracted_data 폴더의 내용을 지우고 나서 추출한다.
-3. pyside 를 이용한 gui에서 extracted_data 폴더를 표시하고 사용자가 파일을 생성,조회,변경,삭제한다.
-   3.1 외부에서 파일을 드래그 앤 드롭하면 해당 파일들을 extracted_data 에 복사한다.
-   3.2 여러파일을 선택해서 삭제할 수 있다.
-   3.3 특정 littlefs.bin 파일을 읽어서 extracted_data 폴더에 추출하는 read from bin 버튼이 있다.
-   3.4 extracted_data 폴더를 조립해서 새로운 new_littlefs.bin 파일을 만드는 write to bin 버튼이 있다.
-4. extracted_data 폴더를 new_littlefs.bin 파일로 조립한다. mklittlefs.py 를 사용한다.
-5. esp32 의 파티션에 new_littlefs.bin 파일을 기록한다. flash_littlefs.py 를 사용한다.
-6. COM 포트를 선택할수 있다.
 ---
-
-# 라이선스 (License)
-이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 `LICENSE` 파일을 참조하세요.
-Copyright (c) 2024
+Copyright (c) 2024 ESP32 LittleFS Toolset Project
+License: MIT

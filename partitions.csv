@@ -1,7 +1,6 @@
-# Name,   type, SubType, Offset,  Size, Flags
-# eg.boot,,     ,        0x0,     0x9000,     # 
-nvs,      data, nvs,     0x9000,  0x7000,
-# otadata,  data, ota,     0xE000,  0x2000,
-factory,  app,  factory, 0x10000, 0x100000,
-spiffs,  data, spiffs,  0x110000,0x14F000,
-coredump, data, coredump,0x260000,0x10000,
+# ESP-IDF Partition Table
+# Name, Type, SubType, Offset, Size, Flags
+nvs,data,nvs,0x9000,28K,
+factory,app,factory,0x10000,1M,
+spiffs,data,spiffs,0x110000,1340K,
+coredump,data,coredump,0x260000,64K,

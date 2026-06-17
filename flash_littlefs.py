@@ -1,7 +1,8 @@
-# 필요한 라이브러리(esptool, sys, os)를 임포트합니다.
+# 필요한 라이브러리(esptool, sys, os, argparse)를 임포트합니다.
 import esptool
 import sys
 import os
+import argparse
 
 # 1. 바이너리 파일을 ESP32의 특정 오프셋에 업로드하는 함수를 정의합니다.
 def download_bin_file(bin_file_name: str, offset: str, port: str = None) -> bool:
@@ -40,9 +41,15 @@ def download_bin_file(bin_file_name: str, offset: str, port: str = None) -> bool
 
 # 2. 스크립트의 전체 실행 흐름을 담당하는 메인 함수를 정의합니다.
 def main():
-    # 2.1 업로드할 LittleFS 바이너리 파일 경로와 대상 오프셋 주소를 설정합니다.
-    bin_file_name = os.path.join(os.path.dirname(__file__), "new_littlefs.bin")
-    offset = "0x110000"
+    # 2.1 명령줄 인자를 파싱하기 위한 설정을 수행합니다.
+    parser = argparse.ArgumentParser(description="ESP32 Flash Upload Tool")
+    parser.add_argument("--bin", default="new_littlefs.bin", help="업로드할 바이너리 파일 경로 (기본값: new_littlefs.bin)")
+    parser.add_argument("--offset", default="0x110000", help="업로드할 대상 오프셋 주소 (기본값: 0x110000)")
+    parser.add_argument("--port", help="ESP32가 연결된 시리얼 포트")
+
+    args = parser.parse_args()
+
+    bin_file_name = os.path.join(os.path.dirname(__file__), args.bin)
 
     # 2.2 바이너리 파일이 해당 경로에 실제로 존재하는지 검사합니다.
     if not os.path.exists(bin_file_name):
@@ -50,8 +57,8 @@ def main():
         sys.exit(1)
 
     # 2.3 업로드 함수를 호출하고 결과에 따라 성공 메시지를 출력하거나 프로그램을 종료합니다.
-    print(f"Attempting to download {bin_file_name} to offset {offset}")
-    if not download_bin_file(bin_file_name, offset):
+    print(f"Attempting to download {bin_file_name} to offset {args.offset}")
+    if not download_bin_file(bin_file_name, args.offset, port=args.port):
         print(f"DownloadBinFile Failed for {bin_file_name}")
         sys.exit(1)
     else:
