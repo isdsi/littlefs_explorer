@@ -63,6 +63,18 @@ python dump_littlefs.py
 3. 파일 생성 및 기록 (FILE_WRITE)
 4. 파일 다시 읽기 및 표시 (FILE_READ)
 
+# littlefs_explorer
+1. esp32 의 파티션을 읽어 littlefs.bin 파일을 읽어온다. dump_littlefs.py 를 사용한다.
+2. littlefs.bin 파일을 extracted_data 폴더에 추출한다. mklittlefs.py 를 사용한다.
+   2.1 이미 존재하는 extracted_data 폴더의 내용을 지우고 나서 추출한다.
+3. pyside 를 이용한 gui에서 extracted_data 폴더를 표시하고 사용자가 파일을 생성,조회,변경,삭제한다.
+   3.1 외부에서 파일을 드래그 앤 드롭하면 해당 파일들을 extracted_data 에 복사한다.
+   3.2 여러파일을 선택해서 삭제할 수 있다.
+   3.3 특정 littlefs.bin 파일을 읽어서 extracted_data 폴더에 추출하는 read from bin 버튼이 있다.
+   3.4 extracted_data 폴더를 조립해서 새로운 new_littlefs.bin 파일을 만드는 write to bin 버튼이 있다.
+4. extracted_data 폴더를 new_littlefs.bin 파일로 조립한다. mklittlefs.py 를 사용한다.
+5. esp32 의 파티션에 new_littlefs.bin 파일을 기록한다. flash_littlefs.py 를 사용한다.
+6. COM 포트를 선택할수 있다.
 ---
 
 # 라이선스 (License)

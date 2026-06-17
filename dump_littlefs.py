@@ -4,17 +4,22 @@ import sys
 import os
 
 # 1. ESP32 플래시 메모리에서 바이너리 데이터를 추출하는 함수를 정의합니다.
-def dump_bin_file(output_file_name: str, offset: str, size: str) -> bool:
+def dump_bin_file(output_file_name: str, offset: str, size: str, port: str = None) -> bool:
     # 1.1 esptool 실행에 필요한 통신 속도, 리셋 설정, 읽기 작업 등의 인자 리스트를 생성합니다.
     argument_list = [
         "--baud", "460800",
         "--before", "default_reset",
         "--after", "hard_reset",
+    ]
+    if port:
+        argument_list.extend(["--port", port])
+    
+    argument_list.extend([
         "read_flash",
         offset,
         size,
         output_file_name
-    ]
+    ])
 
     # 1.2 실행될 esptool 명령 인자 정보를 콘솔에 출력합니다.
     print(f"Executing esptool with arguments: {argument_list}")

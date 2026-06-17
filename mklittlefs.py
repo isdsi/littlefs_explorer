@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 from littlefs import LittleFS
 
 # 1. LittleFS 바이너리 파일을 읽어 내부에 저장된 파일들을 로컬 폴더로 추출하는 함수 정의
@@ -12,6 +13,10 @@ def extract_files(bin_file_path, output_folder, block_size):
     file_size = os.path.getsize(bin_file_path)
     block_count = file_size // block_size
 
+    # 1.3 로컬에 대상 폴더의 내용을 모두 삭제한다.
+    if os.path.exists(output_folder):
+        shutil.rmtree(output_folder)
+    
     os.makedirs(output_folder, exist_ok=True)
     print(f"'{bin_file_path}'에서 파일 추출 중 (크기: {file_size} bytes, 블록 수: {block_count})...")
 
