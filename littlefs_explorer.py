@@ -103,12 +103,18 @@ class LittleFSExplorer(QMainWindow):
         self.setWindowTitle("ESP32 LittleFS Explorer")
         self.resize(1000, 700)
 
-        # 기본 설정값 (기존 스크립트와 동일)
-        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        # 기본 설정값 (PyInstaller 패키징 환경 호환)
+        if getattr(sys, 'frozen', False):
+            self.base_dir = os.path.dirname(sys.executable)
+            bundle_dir = sys._MEIPASS
+        else:
+            self.base_dir = os.path.dirname(os.path.abspath(__file__))
+            bundle_dir = self.base_dir
+
         self.bin_file = os.path.join(self.base_dir, "littlefs.bin")
         self.new_bin_file = os.path.join(self.base_dir, "new_littlefs.bin")
         self.extract_folder = os.path.join(self.base_dir, "extracted_data")
-        self.img_dir = os.path.join(self.base_dir, "img")
+        self.img_dir = os.path.join(bundle_dir, "img")
         self.offset = "0x110000"
         self.size = 0x14F000
         self.block_size = 4096

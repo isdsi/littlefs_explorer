@@ -29,6 +29,12 @@
     .\venv\Scripts\python.exe littlefs_explorer.py
     ```
 
+### 배포판 빌드 (단일 실행 파일 .exe 생성)
+터미널에서 `build_dist.ps1` 스크립트를 실행하면 `dist/LittleFS_Explorer.exe`가 생성됩니다:
+```powershell
+.\build_dist.ps1
+```
+
 ## 프로젝트 구성
 
 *   **GUI 에디터**: `littlefs_explorer.py` (메인 실행 파일)
