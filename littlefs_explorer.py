@@ -17,6 +17,14 @@ from flash_littlefs import download_bin_file
 from mklittlefs import extract_files, assemble_files
 from gen_esp32part import PartitionTable
 
+class PortComboBox(QComboBox):
+    """드롭다운 목록을 펼칠 때 COM 포트를 자동으로 새로고침하는 콤보박스"""
+    popupAboutToBeShown = Signal()
+
+    def showPopup(self):
+        self.popupAboutToBeShown.emit()
+        super().showPopup()
+
 class LittleFSTreeView(QTreeView):
     """외부 파일 드래그 앤 드롭을 지원하는 커스텀 트리 뷰"""
     fileDropped = Signal()
@@ -125,14 +133,20 @@ class LittleFSExplorer(QMainWindow):
         self.init_ui()
 
     def refresh_ports(self):
+        current_selected = self.port_combo.currentData() if hasattr(self, 'port_combo') else None
         self.port_combo.clear()
         ports = serial.tools.list_ports.comports()
-        for port in ports:
-            self.port_combo.addItem(f"{port.device} ({port.description})", port.device)
         
+        selected_index = 0
+        for i, port in enumerate(ports):
+            self.port_combo.addItem(f"{port.device} ({port.description})", port.device)
+            if current_selected and port.device == current_selected:
+                selected_index = i
+
         if self.port_combo.count() == 0:
             self.port_combo.addItem("No COM Ports Found", "")
-        self.port_combo.setCurrentIndex(0) # 첫 번째 포트 선택
+        else:
+            self.port_combo.setCurrentIndex(selected_index)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -142,7 +156,8 @@ class LittleFSExplorer(QMainWindow):
         # 0. COM 포트 선택 레이아웃
         port_layout = QHBoxLayout()
         port_layout.addWidget(QLabel("Serial Port:"))
-        self.port_combo = QComboBox()
+        self.port_combo = PortComboBox()
+        self.port_combo.popupAboutToBeShown.connect(self.refresh_ports)
         port_layout.addWidget(self.port_combo, 1)
         self.btn_refresh = QPushButton("Refresh")
         # 아이콘 추가
