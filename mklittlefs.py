@@ -43,6 +43,7 @@ def extract_files(bin_file_path, output_folder, block_size):
         print(f"파일 추출 완료. '{output_folder}' 폴더를 확인하세요.")
     except Exception as e:
         print(f"파일 추출 중 오류 발생: {e}")
+        raise
     finally:
         # 1.4 파일 시스템 사용 종료 후 안전하게 언마운트 수행
         if 'fs' in locals():
@@ -87,6 +88,7 @@ def assemble_files(input_folder, bin_file_path, block_size, image_size):
         print(f"파일 조립 완료. '{bin_file_path}' 파일이 생성되었습니다.")
     except Exception as e:
         print(f"파일 조립 중 오류 발생: {e}")
+        raise
 
 # 명령줄 인자(추출/조립 액션, 경로 등)를 파싱하고 해당 기능을 분기 실행하는 메인 함수
 def main():

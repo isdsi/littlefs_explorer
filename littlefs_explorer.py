@@ -1,6 +1,7 @@
 import sys
 import os
 import shutil
+import multiprocessing
 import serial.tools.list_ports
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QTreeView, QTextEdit,
@@ -8,14 +9,22 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QFileSystemModel, QComboBox, QLabel, QScrollArea,
                              QFileDialog) # QFileDialog 추가
 
-from PySide6.QtCore import Qt, QDir, QModelIndex, QFileSystemWatcher, Signal, QSize
-from PySide6.QtGui import QAction, QCursor, QIcon
+from PySide6.QtCore import Qt, QDir, QModelIndex, QFileSystemWatcher, Signal, QSize, QUrl, QMimeData
+from PySide6.QtGui import QAction, QCursor, QIcon, QKeySequence
 
 # 기존 스크립트 모듈 임포트
 from dump_littlefs import dump_bin_file
 from flash_littlefs import download_bin_file
 from mklittlefs import extract_files, assemble_files
 from gen_esp32part import PartitionTable
+
+class PortComboBox(QComboBox):
+    """드롭다운 목록을 펼칠 때 COM 포트를 자동으로 새로고침하는 콤보박스"""
+    popupAboutToBeShown = Signal()
+
+    def showPopup(self):
+        self.popupAboutToBeShown.emit()
+        super().showPopup()
 
 class LittleFSTreeView(QTreeView):
     """외부 파일 드래그 앤 드롭을 지원하는 커스텀 트리 뷰"""
@@ -48,7 +57,7 @@ class LittleFSTreeView(QTreeView):
                 # 파일이 이미 존재하면 덮어쓸지 묻는 대화 상자 표시
                 if os.path.exists(dst_path):
                     reply = QMessageBox.question(self, 'Overwrite File?',
-                                                 f"'{os.path.basename(src_path)}'이(가) 이미 존재합니다. 덮어쓰시겠습니까?",
+                                                 f"'{os.path.basename(src_path)}' already exists. Do you want to overwrite it?",
                                                  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                     if reply == QMessageBox.No:
                         continue # 덮어쓰지 않으면 다음 파일로 넘어감
@@ -100,33 +109,63 @@ class TextEditorDialog(QDialog):
 class LittleFSExplorer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ESP32 LittleFS Explorer")
+
+        # 기본 설정값 (PyInstaller 패키징 환경 호환)
+        if getattr(sys, 'frozen', False):
+            self.base_dir = os.path.dirname(sys.executable)
+            bundle_dir = sys._MEIPASS
+        else:
+            self.base_dir = os.path.dirname(os.path.abspath(__file__))
+            bundle_dir = self.base_dir
+
+        # version.txt에서 버전 정보 읽기
+        self.version = ""
+        for v_path in [os.path.join(bundle_dir, "version.txt"), os.path.join(self.base_dir, "version.txt")]:
+            if os.path.exists(v_path):
+                try:
+                    with open(v_path, "r", encoding="utf-8") as f:
+                        self.version = f.read().strip()
+                    break
+                except Exception:
+                    pass
+
+        title = f"ESP32 LittleFS Explorer v{self.version}" if self.version else "ESP32 LittleFS Explorer"
+        self.setWindowTitle(title)
         self.resize(1000, 700)
 
-        # 기본 설정값 (기존 스크립트와 동일)
-        self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.bin_file = os.path.join(self.base_dir, "littlefs.bin")
         self.new_bin_file = os.path.join(self.base_dir, "new_littlefs.bin")
         self.extract_folder = os.path.join(self.base_dir, "extracted_data")
-        self.img_dir = os.path.join(self.base_dir, "img")
+        self.img_dir = os.path.join(bundle_dir, "img")
         self.offset = "0x110000"
         self.size = 0x14F000
         self.block_size = 4096
 
-        if not os.path.exists(self.extract_folder):
-            os.makedirs(self.extract_folder)
+        # 프로그램 시작 시 작업 폴더 초기화 (기존 파일이 있으면 모두 삭제)
+        if os.path.exists(self.extract_folder):
+            try:
+                shutil.rmtree(self.extract_folder)
+            except Exception:
+                pass
+        os.makedirs(self.extract_folder, exist_ok=True)
 
         self.init_ui()
 
     def refresh_ports(self):
+        current_selected = self.port_combo.currentData() if hasattr(self, 'port_combo') else None
         self.port_combo.clear()
         ports = serial.tools.list_ports.comports()
-        for port in ports:
-            self.port_combo.addItem(f"{port.device} ({port.description})", port.device)
         
+        selected_index = 0
+        for i, port in enumerate(ports):
+            self.port_combo.addItem(f"{port.device} ({port.description})", port.device)
+            if current_selected and port.device == current_selected:
+                selected_index = i
+
         if self.port_combo.count() == 0:
             self.port_combo.addItem("No COM Ports Found", "")
-        self.port_combo.setCurrentIndex(0) # 첫 번째 포트 선택
+        else:
+            self.port_combo.setCurrentIndex(selected_index)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -136,7 +175,8 @@ class LittleFSExplorer(QMainWindow):
         # 0. COM 포트 선택 레이아웃
         port_layout = QHBoxLayout()
         port_layout.addWidget(QLabel("Serial Port:"))
-        self.port_combo = QComboBox()
+        self.port_combo = PortComboBox()
+        self.port_combo.popupAboutToBeShown.connect(self.refresh_ports)
         port_layout.addWidget(self.port_combo, 1)
         self.btn_refresh = QPushButton("Refresh")
         # 아이콘 추가
@@ -244,7 +284,26 @@ class LittleFSExplorer(QMainWindow):
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
         self.tree.doubleClicked.connect(self.open_file_editor)
-        self.tree.fileDropped.connect(self.update_usage_status)
+        self.tree.fileDropped.connect(self.refresh_file_view)
+
+        # 트리 뷰 단축키 등록 (Ctrl+C, Ctrl+V, Delete)
+        act_copy = QAction(self)
+        act_copy.setShortcut(QKeySequence.Copy)
+        act_copy.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        act_copy.triggered.connect(self.copy_selected_items)
+        self.tree.addAction(act_copy)
+
+        act_paste = QAction(self)
+        act_paste.setShortcut(QKeySequence.Paste)
+        act_paste.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        act_paste.triggered.connect(lambda: self.paste_items())
+        self.tree.addAction(act_paste)
+
+        act_del = QAction(self)
+        act_del.setShortcut(QKeySequence.Delete)
+        act_del.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        act_del.triggered.connect(self.delete_items)
+        self.tree.addAction(act_del)
         
         main_layout.addWidget(self.tree)
 
@@ -265,8 +324,8 @@ class LittleFSExplorer(QMainWindow):
         self.watcher.directoryChanged.connect(self.on_extracted_folder_changed)
 
         self.refresh_ports()
-        self.update_usage_status()
-        self.log("Explorer Initialized. Work directory: " + self.extract_folder)
+        ver_str = f" v{self.version}" if self.version else ""
+        self.log(f"Explorer{ver_str} Initialized. Work directory: " + self.extract_folder)
 
     def log(self, message):
         self.log_view.append(f"> {message}")
@@ -278,20 +337,32 @@ class LittleFSExplorer(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select a COM port.")
             return
 
-        self.log("Reading partition table (offset 0x8000)...")
-        part_bin = os.path.join(self.base_dir, "partition_table.bin")
-        # 파티션 테이블 섹터(0x1000)를 읽어옵니다.
-        if dump_bin_file(part_bin, "0x8000", "0x1000", port=port):
-            try:
-                with open(part_bin, "rb") as f:
-                    data = f.read()
-                table = PartitionTable.from_binary(data)
-                self.update_partition_view(table)
-                self.log("Partition table analyzed and displayed.")
-            except Exception as e:
-                self.log(f"Error parsing partition table: {e}")
-        else:
-            self.log("Failed to read partition table from ESP32.")
+        self.log(f"Reading partition table from ESP32 on port {port} (offset 0x8000)...")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            part_bin = os.path.join(self.base_dir, "partition_table.bin")
+            # 파티션 테이블 섹터(0x1000)를 읽어옵니다.
+            if dump_bin_file(part_bin, "0x8000", "0x1000", port=port):
+                try:
+                    with open(part_bin, "rb") as f:
+                        data = f.read()
+                    table = PartitionTable.from_binary(data)
+                    self.update_partition_view(table)
+                    self.log("Partition table analyzed and displayed.")
+                    QMessageBox.information(self, "Success", "Partition table loaded successfully!")
+                except Exception as e:
+                    self.log(f"Error parsing partition table: {e}")
+                    QMessageBox.critical(self, "Parsing Error", f"Failed to parse partition table:\n{e}")
+            else:
+                self.log("Failed to read partition table from ESP32.")
+                QMessageBox.critical(self, "Connection Error",
+                                     f"Failed to read partition table from ESP32 on port '{port}'.\n\n"
+                                     "Please check the USB connection, select the correct COM port, or hold the BOOT button on the board.")
+        except Exception as e:
+            self.log(f"Error loading partition table: {e}")
+            QMessageBox.critical(self, "Error", f"An error occurred while loading partition table:\n{e}")
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def update_partition_view(self, table):
         # 기존 레이아웃 내 위젯 삭제
@@ -299,18 +370,70 @@ class LittleFSExplorer(QMainWindow):
             widget = self.partition_layout.itemAt(i).widget()
             if widget: widget.setParent(None)
 
+        default_select_btn = None
+        default_select_part = None
+
         for p in table:
             # 블록 생성: 이름, 타입/서브타입, 크기 표시
             info = f"{p.name}\n({hex(p.type)}/{hex(p.subtype)})\n{hex(p.size)}"
             btn = QPushButton(info)
             btn.setToolTip(f"Offset: {hex(p.offset)}\nSize: {hex(p.size)}\nFlags: {p.get_flags_list()}")
             btn.setMinimumWidth(120)
-            # LittleFS 파티션 (0x01/0x83)인 경우 시각적으로 강조
-            if p.type == 0x01 and p.subtype == 0x83:
-                btn.setStyleSheet("background-color: #fff3cd; border: 2px solid #ffc107; font-weight: bold;")
-            
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)
+
+            # LittleFS 파티션 여부 확인 (서브타입 0x82, 0x83 또는 이름 기준)
+            is_lfs = (p.type == 0x01 and p.subtype in (0x82, 0x83)) or ("littlefs" in p.name.lower())
+
+            # 일반 및 선택(checked) 상태 스타일시트 설정
+            if is_lfs:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #fff3cd;
+                        border: 2px solid #ffc107;
+                        border-radius: 4px;
+                        padding: 4px;
+                        font-weight: 500;
+                    }
+                    QPushButton:hover {
+                        background-color: #ffe69c;
+                    }
+                    QPushButton:checked {
+                        background-color: #0d6efd;
+                        color: white;
+                        border: 2px solid #0a58ca;
+                        font-weight: bold;
+                    }
+                """)
+                if default_select_btn is None:
+                    default_select_btn = btn
+                    default_select_part = p
+            else:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #ffffff;
+                        border: 1px solid #ced4da;
+                        border-radius: 4px;
+                        padding: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #e9ecef;
+                    }
+                    QPushButton:checked {
+                        background-color: #0d6efd;
+                        color: white;
+                        border: 2px solid #0a58ca;
+                        font-weight: bold;
+                    }
+                """)
+
             btn.clicked.connect(lambda checked=False, part=p: self.on_partition_selected(part))
             self.partition_layout.addWidget(btn)
+
+        # LittleFS 파티션이 있으면 기본 선택
+        if default_select_btn and default_select_part:
+            default_select_btn.setChecked(True)
+            self.on_partition_selected(default_select_part)
 
     def on_partition_selected(self, part):
         self.offset = hex(part.offset)
@@ -318,12 +441,20 @@ class LittleFSExplorer(QMainWindow):
         self.log(f"Partition Selected -> Name: {part.name}, Offset: {self.offset}, Size: {hex(self.size)}")
         self.update_usage_status()
 
+    def refresh_file_view(self):
+        """파일 시스템 모델을 새로 갱신하여 변경된 파일 목록 및 파일 크기(메타데이터)를 즉시 반영"""
+        col_width = self.tree.columnWidth(0) if hasattr(self, 'tree') else 300
+        self.model = QFileSystemModel()
+        self.model.setRootPath(self.extract_folder)
+        self.model.setReadOnly(False)
+        self.tree.setModel(self.model)
+        self.tree.setRootIndex(self.model.index(self.extract_folder))
+        self.tree.setColumnWidth(0, max(col_width, 250))
+        self.update_usage_status()
+
     def on_extracted_folder_changed(self, path):
         """폴더 내용이 변경될 때 트리 뷰 모델 갱신 및 용량 체크"""
-        self.update_usage_status()
-        # QFileSystemModel은 자동 감시 기능이 있으나, 외부 변경 시 즉각 반영을 보장하기 위해 setRootPath 재설정
-        self.model.setRootPath(self.extract_folder)
-        self.tree.setRootIndex(self.model.index(self.extract_folder))
+        self.refresh_file_view()
 
     def update_usage_status(self):
         """현재 extracted_data 폴더의 총 용량을 계산하여 표시 (Step 3.5)"""
@@ -351,24 +482,28 @@ class LittleFSExplorer(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select a COM port.")
             return
 
-        self.log("Starting Read Process...")
+        self.log(f"Starting Read Process from ESP32 on port {port} (offset {self.offset}, size {hex(self.size)})...")
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             if dump_bin_file(self.bin_file, self.offset, hex(self.size), port=port):
                 self.log("Dump success. Extracting...")
                 extract_files(self.bin_file, self.extract_folder, self.block_size) # mklittlefs.py에서 폴더 초기화 로직 포함
                 self.log("Extraction complete. Refreshing file view.")
-                self.model.setRootPath(self.extract_folder) # 파일 시스템 모델 갱신
-                self.tree.setRootIndex(self.model.index(self.extract_folder))
+                self.refresh_file_view()
                 
                 # shutil.rmtree로 인해 감시가 풀린 경우 다시 등록
                 if self.extract_folder not in self.watcher.directories():
                     self.watcher.addPath(self.extract_folder)
-                self.update_usage_status()
 
                 QMessageBox.information(self, "Success", "LittleFS data read and extracted successfully!")
             else:
-                self.log("Dump failed.")
+                self.log(f"Failed to read partition from ESP32 on port {port}.")
+                QMessageBox.critical(self, "Connection Error",
+                                     f"Failed to read partition from ESP32 on port '{port}'.\n\n"
+                                     "Please check device connection, COM port settings, and access permissions.")
+        except Exception as e:
+            self.log(f"Error during read & extract: {e}")
+            QMessageBox.critical(self, "Read / Extract Error", f"An error occurred during read and extract:\n{e}")
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -378,7 +513,7 @@ class LittleFSExplorer(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select a COM port.")
             return
 
-        self.log("Starting Write Process...")
+        self.log(f"Starting Write Process to ESP32 on port {port} (offset {self.offset})...")
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             # 4. mklittlefs.py 사용
@@ -388,7 +523,13 @@ class LittleFSExplorer(QMainWindow):
                 self.log("Flash complete.")
                 QMessageBox.information(self, "Success", "New LittleFS image flashed to ESP32.")
             else:
-                self.log("Flash failed.")
+                self.log(f"Failed to flash LittleFS image to ESP32 on port {port}.")
+                QMessageBox.critical(self, "Flash Error",
+                                     f"Failed to flash LittleFS image to ESP32 on port '{port}'.\n\n"
+                                     "Please check device connection and ensure the port is not in use by another program.")
+        except Exception as e:
+            self.log(f"Error during assemble & flash: {e}")
+            QMessageBox.critical(self, "Write / Flash Error", f"An error occurred during assemble and flash:\n{e}")
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -404,17 +545,15 @@ class LittleFSExplorer(QMainWindow):
             self.size = os.path.getsize(file_path)  # 읽은 bin 파일의 크기를 기준 용량으로 설정 (Step 3.5)
             extract_files(file_path, self.extract_folder, self.block_size)
             self.log("Extraction successful.")
-            self.model.setRootPath(self.extract_folder)
-            self.tree.setRootIndex(self.model.index(self.extract_folder))
+            self.refresh_file_view()
             
             if self.extract_folder not in self.watcher.directories():
                 self.watcher.addPath(self.extract_folder)
-            self.update_usage_status()
 
             QMessageBox.information(self, "Success", "LittleFS binary extracted successfully.")
         except Exception as e:
             self.log(f"Error: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to read from bin: {e}")
+            QMessageBox.critical(self, "Read Error", f"Failed to read and extract binary file:\n{e}")
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -432,31 +571,117 @@ class LittleFSExplorer(QMainWindow):
             QMessageBox.information(self, "Success", f"Binary assembled and saved to:\n{file_path}")
         except Exception as e:
             self.log(f"Error: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to assemble bin: {e}")
+            QMessageBox.critical(self, "Write Error", f"Failed to assemble and save binary file:\n{e}")
         finally:
             QApplication.restoreOverrideCursor()
 
-    # --- 파일 시스템 CRUD 제어 ---
+    # --- 파일 시스템 CRUD 및 파일 전송 / 복사/붙여넣기 제어 ---
+    def get_target_dir(self, index=None):
+        """작업 대상 폴더 경로를 반환 (인덱스가 없으면 현재 선택 또는 루트)"""
+        if index is None or not index.isValid():
+            selected = self.tree.selectionModel().selectedRows()
+            index = selected[0] if selected else QModelIndex()
+
+        if index.isValid():
+            path = self.model.filePath(index)
+            return path if os.path.isdir(path) else os.path.dirname(path)
+        return self.extract_folder
+
     def show_context_menu(self, position):
         index = self.tree.indexAt(position)
+        selected_indexes = self.tree.selectionModel().selectedRows()
+        has_selection = len(selected_indexes) > 0 or index.isValid()
+        has_clipboard_urls = QApplication.clipboard().mimeData().hasUrls()
+
         menu = QMenu()
-        
+
+        # 1. 복사 / 붙여넣기 (Ctrl+C / Ctrl+V, 윈도우 탐색기와 양방향 호환)
+        copy_act = QAction("Copy", self)
+        copy_act.setShortcut(QKeySequence.Copy)
+        copy_act.setEnabled(has_selection)
+        copy_act.triggered.connect(self.copy_selected_items)
+        menu.addAction(copy_act)
+
+        paste_act = QAction("Paste", self)
+        paste_act.setShortcut(QKeySequence.Paste)
+        paste_act.setEnabled(has_clipboard_urls)
+        paste_act.triggered.connect(lambda: self.paste_items(index))
+        menu.addAction(paste_act)
+
+        menu.addSeparator()
+
+        # 2. 새 파일 / 폴더 생성
         create_file_act = QAction("Create New File", self)
         create_file_act.triggered.connect(lambda: self.create_item(index, is_dir=False))
-        
+        menu.addAction(create_file_act)
+
         create_dir_act = QAction("Create New Folder", self)
         create_dir_act.triggered.connect(lambda: self.create_item(index, is_dir=True))
-        
-        delete_act = QAction("Delete", self)
-        delete_act.triggered.connect(self.delete_items)
-        
-        menu.addAction(create_file_act)
         menu.addAction(create_dir_act)
-        if index.isValid():
+
+        if has_selection:
             menu.addSeparator()
+            delete_act = QAction("Delete", self)
+            delete_act.setShortcut(QKeySequence.Delete)
+            delete_act.triggered.connect(self.delete_items)
             menu.addAction(delete_act)
-            
+
         menu.exec(self.tree.viewport().mapToGlobal(position))
+
+    def copy_selected_items(self):
+        """선택된 항목들을 시스템 클립보드에 복사 (탐색기와 상호 호환)"""
+        selected_indexes = self.tree.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+
+        paths = [self.model.filePath(idx) for idx in selected_indexes if os.path.exists(self.model.filePath(idx))]
+        if not paths:
+            return
+
+        mime_data = QMimeData()
+        mime_data.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        QApplication.clipboard().setMimeData(mime_data)
+        self.log(f"Copied {len(paths)} item(s) to clipboard.")
+
+    def paste_items(self, index=None):
+        """클립보드에 있는 파일/폴더를 대상 폴더에 붙여넣기 (탐색기와 상호 호환)"""
+        mime_data = QApplication.clipboard().mimeData()
+        if not mime_data.hasUrls():
+            return
+
+        target_dir = self.get_target_dir(index)
+        pasted_count = 0
+
+        for url in mime_data.urls():
+            src_path = url.toLocalFile()
+            if not os.path.exists(src_path):
+                continue
+
+            dst_path = os.path.join(target_dir, os.path.basename(src_path))
+            # 동일 경로에 붙여넣는 경우 "_copy" 접미사 부여
+            if os.path.abspath(src_path) == os.path.abspath(dst_path):
+                base, ext = os.path.splitext(os.path.basename(src_path))
+                dst_path = os.path.join(target_dir, f"{base}_copy{ext}")
+
+            if os.path.exists(dst_path):
+                reply = QMessageBox.question(self, "Overwrite File?",
+                                             f"'{os.path.basename(src_path)}' already exists. Do you want to overwrite it?",
+                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if reply == QMessageBox.No:
+                    continue
+
+            try:
+                if os.path.isdir(src_path):
+                    shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src_path, dst_path)
+                pasted_count += 1
+            except Exception as e:
+                self.log(f"Paste failed for '{src_path}': {e}")
+
+        if pasted_count > 0:
+            self.log(f"Pasted {pasted_count} item(s) into: {target_dir}")
+            self.refresh_file_view()
 
     def create_item(self, index, is_dir):
         path = self.model.filePath(index) if index.isValid() else self.extract_folder
@@ -472,7 +697,7 @@ class LittleFSExplorer(QMainWindow):
                 else:
                     with open(new_path, 'w') as f: pass
                 self.log(f"Created: {new_path}")
-                self.update_usage_status()  # 변경 사항 반영
+                self.refresh_file_view()  # 파일 목록 및 용량 강제 갱신
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not create item: {e}")
 
@@ -495,7 +720,7 @@ class LittleFSExplorer(QMainWindow):
                     self.log(f"Deleted: {path}")
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Could not delete {os.path.basename(path)}: {e}")
-            self.update_usage_status()  # 삭제 후 용량 갱신
+            self.refresh_file_view()  # 삭제 후 화면 및 용량 강제 갱신
 
     def open_file_editor(self, index):
         path = self.model.filePath(index)
@@ -503,9 +728,10 @@ class LittleFSExplorer(QMainWindow):
             dialog = TextEditorDialog(path, self)
             if dialog.exec() == QDialog.Accepted:
                 self.log(f"Updated file: {path}")
-                self.update_usage_status()  # 파일 수정 후 용량 갱신
+                self.refresh_file_view()  # 파일 수정 후 크기 및 용량 강제 갱신
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv)
     app.setStyle("Fusion") # 운영체제에 상관없이 일관된 스타일 제공
     explorer = LittleFSExplorer()
