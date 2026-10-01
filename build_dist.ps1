@@ -39,17 +39,21 @@ if (-not (Test-Path "$scriptDir\dist")) {
     New-Item -ItemType Directory -Path "$scriptDir\dist" | Out-Null
 }
 
-# 4. PyInstaller 빌드 실행
-Write-Host "[3/3] LittleFS_Explorer 단일 실행 파일(.exe) 빌드 시작..." -ForegroundColor Cyan
+# 4. 버전 확인 및 PyInstaller 빌드 실행
+$version = if (Test-Path "$scriptDir\version.txt") { (Get-Content "$scriptDir\version.txt").Trim() } else { "unknown" }
+Write-Host "[3/3] LittleFS_Explorer v$version 단일 실행 파일(.exe) 빌드 시작..." -ForegroundColor Cyan
 
 & $venvPyinstaller `
     --name "LittleFS_Explorer" `
     --onefile `
-    --noconsole `
+    --console `
     --clean `
     --add-data "img;img" `
-    --hidden-import "littlefs" `
-    --hidden-import "esptool" `
+    --add-data "version.txt;." `
+    --collect-all "esptool" `
+    --collect-all "littlefs" `
+    --copy-metadata "esptool" `
+    --copy-metadata "littlefs-python" `
     --distpath "dist" `
     "littlefs_explorer.py"
 
@@ -58,7 +62,7 @@ if ($LASTEXITCODE -eq 0) {
     if (Test-Path $targetExe) {
         $fileSizeMB = [math]::Round(((Get-Item $targetExe).Length / 1MB), 2)
         Write-Host "`n========================================================" -ForegroundColor Green
-        Write-Host " [성공] 배포판 빌드가 완료되었습니다!" -ForegroundColor Green
+        Write-Host " [성공] 배포판 빌드가 완료되었습니다! (v$version)" -ForegroundColor Green
         Write-Host " 위치: $targetExe" -ForegroundColor Yellow
         Write-Host " 크기: $fileSizeMB MB" -ForegroundColor Yellow
         Write-Host "========================================================`n" -ForegroundColor Green

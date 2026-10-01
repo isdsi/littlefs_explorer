@@ -1,6 +1,7 @@
 import sys
 import os
 import shutil
+import multiprocessing
 import serial.tools.list_ports
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QTreeView, QTextEdit,
@@ -108,8 +109,6 @@ class TextEditorDialog(QDialog):
 class LittleFSExplorer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ESP32 LittleFS Explorer")
-        self.resize(1000, 700)
 
         # 기본 설정값 (PyInstaller 패키징 환경 호환)
         if getattr(sys, 'frozen', False):
@@ -119,6 +118,21 @@ class LittleFSExplorer(QMainWindow):
             self.base_dir = os.path.dirname(os.path.abspath(__file__))
             bundle_dir = self.base_dir
 
+        # version.txt에서 버전 정보 읽기
+        self.version = ""
+        for v_path in [os.path.join(bundle_dir, "version.txt"), os.path.join(self.base_dir, "version.txt")]:
+            if os.path.exists(v_path):
+                try:
+                    with open(v_path, "r", encoding="utf-8") as f:
+                        self.version = f.read().strip()
+                    break
+                except Exception:
+                    pass
+
+        title = f"ESP32 LittleFS Explorer v{self.version}" if self.version else "ESP32 LittleFS Explorer"
+        self.setWindowTitle(title)
+        self.resize(1000, 700)
+
         self.bin_file = os.path.join(self.base_dir, "littlefs.bin")
         self.new_bin_file = os.path.join(self.base_dir, "new_littlefs.bin")
         self.extract_folder = os.path.join(self.base_dir, "extracted_data")
@@ -127,8 +141,13 @@ class LittleFSExplorer(QMainWindow):
         self.size = 0x14F000
         self.block_size = 4096
 
-        if not os.path.exists(self.extract_folder):
-            os.makedirs(self.extract_folder)
+        # 프로그램 시작 시 작업 폴더 초기화 (기존 파일이 있으면 모두 삭제)
+        if os.path.exists(self.extract_folder):
+            try:
+                shutil.rmtree(self.extract_folder)
+            except Exception:
+                pass
+        os.makedirs(self.extract_folder, exist_ok=True)
 
         self.init_ui()
 
@@ -305,8 +324,8 @@ class LittleFSExplorer(QMainWindow):
         self.watcher.directoryChanged.connect(self.on_extracted_folder_changed)
 
         self.refresh_ports()
-        self.update_usage_status()
-        self.log("Explorer Initialized. Work directory: " + self.extract_folder)
+        ver_str = f" v{self.version}" if self.version else ""
+        self.log(f"Explorer{ver_str} Initialized. Work directory: " + self.extract_folder)
 
     def log(self, message):
         self.log_view.append(f"> {message}")
@@ -712,6 +731,7 @@ class LittleFSExplorer(QMainWindow):
                 self.refresh_file_view()  # 파일 수정 후 크기 및 용량 강제 갱신
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     app = QApplication(sys.argv)
     app.setStyle("Fusion") # 운영체제에 상관없이 일관된 스타일 제공
     explorer = LittleFSExplorer()
